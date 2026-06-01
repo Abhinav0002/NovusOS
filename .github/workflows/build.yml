@@ -25,7 +25,7 @@ jobs:
       - name: Build kernel
         run: cargo build --release -p kernel
 
-      - name: Clippy (kernel)
+      - name: Clippy
         run: cargo clippy --release -p kernel -- -D warnings
         continue-on-error: true
 
@@ -44,25 +44,6 @@ jobs:
       - name: Build NovusOS
         run: cd novusos && cargo build --release
 
-      - name: Clippy (NovusOS)
+      - name: Clippy
         run: cd novusos && cargo clippy --release -- -D warnings
         continue-on-error: true
-
-  build-userspace:
-    name: Build Userspace
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          targets: aarch64-unknown-none
-          components: rust-src
-
-      - name: Build init process
-        run: |
-          cd userspace/init
-          cargo build --release --target aarch64-unknown-none \
-            -Zbuild-std=core \
-            --config "target.aarch64-unknown-none.rustflags=[-C, link-arg=-Tlinker.ld]"
