@@ -1,0 +1,8 @@
+[package]
+name = "novusos"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+uefi = { version = "0.34", features = ["alloc", "global_allocator", "panic_handler"] }
+log = "0.4"
