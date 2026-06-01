@@ -2,6 +2,9 @@
 name = "novusos"
 version = "1.0.0"
 edition = "2021"
+description = "Graphical UEFI desktop environment for AArch64 with interactive terminal shell"
+repository = "https://github.com/Abhinav0002/NovusOS"
+license = "MIT"
 
 [dependencies]
 uefi = { version = "0.34", features = ["alloc", "global_allocator", "panic_handler"] }

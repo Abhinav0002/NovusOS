@@ -3,10 +3,7 @@ members = ["kernel", "novusos"]
 exclude = ["userspace/init"]
 resolver = "2"
 
-[profile.dev]
-panic = "abort"
-
 [profile.release]
-panic = "abort"
+opt-level = "z"
 lto = true
-opt-level = 2
+panic = "abort"

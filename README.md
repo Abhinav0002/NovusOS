@@ -2,6 +2,7 @@
 
 A bare-metal operating system for AArch64 (ARM64) featuring both a traditional kernel with full OS subsystems and a graphical UEFI desktop environment.
 
+[![Build](https://github.com/Abhinav0002/NovusOS/actions/workflows/build.yml/badge.svg)](https://github.com/Abhinav0002/NovusOS/actions/workflows/build.yml)
 ![Architecture](https://img.shields.io/badge/Architecture-AArch64-blue)
 ![Language](https://img.shields.io/badge/Language-Rust-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -201,3 +202,56 @@ Full technical documentation is available in the [`docs/`](docs/) directory:
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## Boot Output
+
+### Kernel Serial Console
+
+```
+Hello from custom-os!
+DTB pointer: 0x48000000
+[exceptions] Vector table installed
+[gic] GICv3 initialized
+[timer] Initialized at 62500000 Hz, tick every 10ms
+[vmm] MMU enabled with identity + higher-half mapping
+[mm] Physical memory: 65334 pages free / 65536 total
+[heap] Initialized 1024 KB at 0x400ca000
+[sched] Scheduler initialized
+[virtio] Found network device (id=1) at 0xa003c00, version 1
+[virtio] Found block device (id=2) at 0xa003e00, version 1
+[virtio-net] Initialized, MAC 52:54:00:12:34:56
+[virtio-blk] Initialized, queue size = 128
+[fat32] Mounted: 512 bytes/sector, 1 sectors/cluster, root cluster 2
+[vfs] Mounting fat32 at /
+[vfs] Mounting ramfs at /tmp
+[fs] /hello.txt (33 bytes): Hello from custom-os filesystem!
+[net] Stack initialized, IP 10.0.2.15, MAC 52:54:00:12:34:56
+[tcp] Listening on port 8080
+[process] Loading init ELF (74960 bytes)
+[process] Jumping to EL0 at 0x400000
+Hello from userspace!
+[init] pid=0
+```
+
+### NovusOS Desktop
+
+```
+┌─────────────────────────────────────────────────┐
+│ NovusOS v1.0  |  RAM: 256 MB  |  Uptime: 00:00 │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│   ╔═ Terminal ══════════════════════════╗       │
+│   ║ NovusOS v1.0 -- AArch64 UEFI       ║       │
+│   ║ Framebuffer: 1024x768  RAM: 256 MB  ║       │
+│   ║ Type help for available commands. ║       │
+│   ║                                     ║       │
+│   ║ novus> cpuinfo                      ║       │
+│   ║ CPU Information:                    ║       │
+│   ║   Implementer: ARM (0x41)           ║       │
+│   ║   Part: Cortex-A72 (0xD08)          ║       │
+│   ║   Variant: 0, Revision: 0           ║       │
+│   ║ novus> _                            ║       │
+│   ╚═════════════════════════════════════╝       │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
