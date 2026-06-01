@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-kernel:
+    name: Build Kernel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-unknown-none
+          components: rust-src, llvm-tools-preview, clippy
+
+      - name: Build kernel
+        run: cargo build --release -p kernel
+
+      - name: Clippy (kernel)
+        run: cargo clippy --release -p kernel -- -D warnings
+        continue-on-error: true
+
+  build-novusos:
+    name: Build NovusOS Desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-unknown-uefi
+          components: rust-src, clippy
+
+      - name: Build NovusOS
+        run: cd novusos && cargo build --release
+
+      - name: Clippy (NovusOS)
+        run: cd novusos && cargo clippy --release -- -D warnings
+        continue-on-error: true
+
+  build-userspace:
+    name: Build Userspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-unknown-none
+          components: rust-src
+
+      - name: Build init process
+        run: cd userspace/init && cargo build --release
