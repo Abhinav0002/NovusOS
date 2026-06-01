@@ -47,3 +47,19 @@ jobs:
       - name: Clippy
         run: cd novusos && cargo clippy --release -- -D warnings
         continue-on-error: true
+
+  build-userspace:
+    name: Build Userspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-unknown-none
+          components: rust-src
+
+      - name: Build init process
+        working-directory: userspace/init
+        run: CARGO_ENCODED_RUSTFLAGS="-Clink-arg=-Tlinker.ld" cargo build --release
