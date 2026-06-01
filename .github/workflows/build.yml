@@ -61,6 +61,4 @@ jobs:
           components: rust-src
 
       - name: Build init process
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_NONE_RUSTFLAGS: "-C link-arg=-Tlinker.ld"
-        run: cd userspace/init && cargo build --release
+        run: cd userspace/init && CARGO_TARGET_AARCH64_UNKNOWN_NONE_RUSTFLAGS="" cargo build --release
