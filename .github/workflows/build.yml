@@ -61,4 +61,5 @@ jobs:
           components: rust-src
 
       - name: Build init process
-        run: cd userspace/init && CARGO_TARGET_AARCH64_UNKNOWN_NONE_RUSTFLAGS="" cargo build --release
+        working-directory: userspace/init
+        run: cargo build --release
