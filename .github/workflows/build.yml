@@ -62,4 +62,4 @@ jobs:
 
       - name: Build init process
         working-directory: userspace/init
-        run: cargo build --release
+        run: CARGO_ENCODED_RUSTFLAGS="-Clink-arg=-Tlinker.ld" cargo build --release
