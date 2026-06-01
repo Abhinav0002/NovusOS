@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly"
+targets = ["aarch64-unknown-none", "aarch64-unknown-uefi"]
+components = ["rust-src", "llvm-tools-preview", "rustfmt", "clippy"]
