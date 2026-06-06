@@ -1,0 +1,8 @@
+[package]
+name = "boot-info"
+version = "0.1.0"
+edition = "2021"
+description = "Shared boot protocol structures for NovusOS bootloader and kernel"
+license = "MIT"
+
+[lib]

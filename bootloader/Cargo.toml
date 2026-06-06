@@ -1,0 +1,11 @@
+[package]
+name = "bootloader"
+version = "0.1.0"
+edition = "2021"
+description = "UEFI bootloader stub for NovusOS full-route boot"
+license = "MIT"
+
+[dependencies]
+uefi = { version = "0.34", features = ["alloc", "global_allocator", "panic_handler"] }
+log = "0.4"
+boot-info = { path = "../boot-info" }

@@ -88,6 +88,24 @@ pub fn free_page(addr: PhysAddr) {
     }
 }
 
+pub unsafe fn mark_region_used(start: usize, size: usize) {
+    if size == 0 {
+        return;
+    }
+    let first_page = (start.saturating_sub(BASE_ADDR)) / PAGE_SIZE;
+    let last_page = (start + size - 1 - BASE_ADDR) / PAGE_SIZE;
+    let mut marked = 0usize;
+    for idx in first_page..=last_page {
+        if idx < NUM_PAGES && is_free(idx) {
+            mark_used(idx);
+            marked += 1;
+        }
+    }
+    if marked > 0 {
+        FREE_COUNT.fetch_sub(marked, Ordering::Relaxed);
+    }
+}
+
 pub fn free_pages() -> usize {
     FREE_COUNT.load(Ordering::Relaxed)
 }

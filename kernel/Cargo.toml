@@ -1,7 +1,7 @@
 [package]
 name = "kernel"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2021"
-description = "Bare-metal AArch64 monolithic kernel with MMU, scheduler, VirtIO drivers, filesystem, and TCP/IP stack"
-repository = "https://github.com/Abhinav0002/NovusOS"
-license = "MIT"
+
+[dependencies]
+boot-info = { path = "../boot-info" }

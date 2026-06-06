@@ -10,10 +10,11 @@ QEMU_DEVICES = -drive file=$(DISK_IMG),format=raw,if=none,id=disk0 \
 	-device virtio-net-device,netdev=net0
 
 NOVUSOS_EFI = target/aarch64-unknown-uefi/release/novusos.efi
+BOOTLOADER_EFI = target/aarch64-unknown-uefi/release/bootloader.efi
 UEFI_FW = /opt/homebrew/share/qemu/edk2-aarch64-code.fd
 NOVUSOS_IMG = novusos.img
 
-.PHONY: build run run-bare debug clean clippy disk build-novusos run-novusos iso run-iso
+.PHONY: build run run-bare debug clean clippy disk build-novusos run-novusos iso run-iso build-bootloader run-full
 
 build:
 	cargo build --release
@@ -63,3 +64,16 @@ run-iso: iso
 		-device ramfb \
 		-device qemu-xhci \
 		-device usb-kbd
+
+build-bootloader: $(KERNEL_BIN)
+	cd bootloader && cargo build --release
+	@mkdir -p esp/efi/boot
+	cp $(BOOTLOADER_EFI) esp/efi/boot/BOOTAA64.EFI
+
+run-full: build-bootloader
+	$(QEMU) -machine virt,gic-version=3 -cpu cortex-a72 -m 256M \
+		-drive if=pflash,format=raw,readonly=on,file=$(UEFI_FW) \
+		-drive format=raw,file=fat:rw:esp \
+		-device ramfb \
+		-device virtio-keyboard-device \
+		-serial mon:stdio

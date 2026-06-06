@@ -53,3 +53,46 @@ pub fn init() {
         pmm::total_pages()
     );
 }
+
+pub fn init_from_boot_info(bi: &boot_info::BootInfo) {
+    use boot_info::MemoryRegionKind;
+
+    let mut ram_base = u64::MAX;
+    let mut ram_end = 0u64;
+
+    for i in 0..bi.memory_region_count as usize {
+        let region = &bi.memory_regions[i];
+        if region.kind == MemoryRegionKind::Usable {
+            if region.start < ram_base {
+                ram_base = region.start;
+            }
+            let end = region.start + region.size;
+            if end > ram_end {
+                ram_end = end;
+            }
+        }
+    }
+
+    let ram_base = ram_base as usize;
+    let ram_size = (ram_end - ram_base as u64) as usize;
+
+    unsafe {
+        pmm::init(ram_base, ram_size);
+    }
+
+    for i in 0..bi.memory_region_count as usize {
+        let region = &bi.memory_regions[i];
+        match region.kind {
+            MemoryRegionKind::Usable => {}
+            _ => unsafe {
+                pmm::mark_region_used(region.start as usize, region.size as usize);
+            },
+        }
+    }
+
+    crate::println!(
+        "[mm] Physical memory (BootInfo): {} pages free / {} total",
+        pmm::free_pages(),
+        pmm::total_pages()
+    );
+}

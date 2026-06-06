@@ -7,6 +7,7 @@ mod arch;
 mod console;
 mod drivers;
 mod fs;
+mod gui;
 mod mm;
 mod net;
 mod sync;
@@ -14,8 +15,71 @@ mod sched;
 mod syscall;
 
 #[no_mangle]
-pub extern "C" fn kernel_main(dtb_ptr: usize) -> ! {
+pub extern "C" fn kernel_main(boot_arg: usize) -> ! {
     println!("Hello from custom-os!");
+
+    let boot_info = unsafe {
+        let ptr = boot_arg as *const boot_info::BootInfo;
+        if !ptr.is_null() && (*ptr).magic == boot_info::BOOT_INFO_MAGIC {
+            Some(&*ptr)
+        } else {
+            None
+        }
+    };
+
+    match boot_info {
+        Some(bi) => boot_uefi_path(bi),
+        None => boot_dtb_path(boot_arg),
+    }
+}
+
+fn boot_uefi_path(bi: &boot_info::BootInfo) -> ! {
+    println!("Booted via UEFI (ExitBootServices)");
+    println!(
+        "Framebuffer: {}x{} at {:#x}",
+        bi.framebuffer.width, bi.framebuffer.height, bi.framebuffer.base_phys
+    );
+
+    arch::aarch64::init();
+
+    unsafe {
+        mm::vmm::init_boot_page_tables();
+        mm::vmm::enable_mmu();
+    }
+    mm::init_from_boot_info(bi);
+    mm::heap::init();
+
+    sched::init();
+
+    let virtio_devices = drivers::virtio::probe();
+    for dev in &virtio_devices {
+        match dev.device_id {
+            18 => {
+                if let Some(inp) = drivers::virtio::input::VirtioInput::new(
+                    drivers::virtio::VirtioMmio {
+                        base: dev.base,
+                        device_id: dev.device_id,
+                        version: dev.version,
+                    },
+                ) {
+                    drivers::virtio::input::register(inp);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    gui::init(&bi.framebuffer);
+    sched::spawn("gui_main", gui::gui_main_task);
+
+    println!("Kernel initialized (UEFI path). Entering idle loop.");
+
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
+fn boot_dtb_path(dtb_ptr: usize) -> ! {
     println!("DTB pointer: {:#x}", dtb_ptr);
 
     arch::aarch64::init();

@@ -1,5 +1,6 @@
 pub mod queue;
 pub mod block;
+pub mod input;
 pub mod net;
 
 use core::ptr::{read_volatile, write_volatile};
@@ -37,6 +38,7 @@ const QUEUE_USED_HIGH: usize = 0x0A4;
 
 const DEVICE_NET: u32 = 1;
 const DEVICE_BLOCK: u32 = 2;
+const DEVICE_INPUT: u32 = 18;
 
 const STATUS_ACKNOWLEDGE: u32 = 1;
 const STATUS_DRIVER: u32 = 2;
@@ -156,6 +158,7 @@ pub fn probe() -> alloc::vec::Vec<VirtioMmio> {
         let name = match device_id {
             DEVICE_NET => "network",
             DEVICE_BLOCK => "block",
+            DEVICE_INPUT => "input",
             _ => "unknown",
         };
 
