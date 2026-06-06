@@ -1,77 +1,110 @@
-# NovusOS
+# NovusOS — Full-Route Boot
 
-A bare-metal operating system for AArch64 (ARM64) featuring both a traditional kernel with full OS subsystems and a graphical UEFI desktop environment.
+A bare-metal AArch64 operating system that takes full hardware control by calling UEFI `ExitBootServices()`. A separate UEFI bootloader stub hands off framebuffer, memory map, and control to the kernel — no boot services remain active at runtime.
 
-[![Build](https://github.com/Abhinav0002/NovusOS/actions/workflows/build.yml/badge.svg)](https://github.com/Abhinav0002/NovusOS/actions/workflows/build.yml)
 ![Architecture](https://img.shields.io/badge/Architecture-AArch64-blue)
 ![Language](https://img.shields.io/badge/Language-Rust-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Boot](https://img.shields.io/badge/Boot-UEFI%20%2B%20Raw-informational)
+![Boot](https://img.shields.io/badge/Boot-ExitBootServices-critical)
+
+> **Branch:** `full-route-boot` — this branch implements the full-route boot path. The `main` branch retains the original UEFI application approach where boot services stay active.
 
 ---
 
-## Overview
+## How It Works
 
-NovusOS is a dual-component operating system project:
-
-- **Kernel** — A monolithic bare-metal kernel running on QEMU `virt` with Cortex-A72. Implements boot initialization, exception handling (GICv3), MMU with 4-level page tables, heap allocation, preemptive multitasking, VirtIO block/network drivers, FAT32 + RamFS filesystems, a TCP/IP network stack, system calls, and userspace process execution.
-
-- **NovusOS Desktop** — A graphical UEFI application that boots from an EFI System Partition on both QEMU and VMware Fusion. Features a pixel-level framebuffer with embedded bitmap font, gradient desktop with status bar, bordered terminal window, and an interactive command shell.
-
-## Architecture
+NovusOS uses a **two-binary architecture**: a UEFI bootloader stub and a bare-metal kernel are compiled as separate binaries for different targets, linked by a shared boot protocol crate.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     NovusOS Project                             │
-├─────────────────────────────┬───────────────────────────────────┤
-│      Bare-Metal Kernel      │       UEFI Graphical Desktop      │
-│                             │                                   │
-│  ┌───────────────────────┐  │  ┌─────────────────────────────┐  │
-│  │ Userspace (EL0)       │  │  │ GUI Desktop                 │  │
-│  │  └─ init process      │  │  │  ├─ Gradient background     │  │
-│  ├───────────────────────┤  │  │  ├─ Status bar (uptime/RAM)  │  │
-│  │ Syscall Interface     │  │  │  └─ Terminal window          │  │
-│  ├───────────────────────┤  │  ├─────────────────────────────┤  │
-│  │ Network Stack         │  │  │ Interactive Shell            │  │
-│  │  TCP/UDP/ICMP/ARP/IP  │  │  │  └─ 10 built-in commands    │  │
-│  ├───────────────────────┤  │  ├─────────────────────────────┤  │
-│  │ Filesystem Layer      │  │  │ Console (fmt::Write)        │  │
-│  │  FAT32 + RamFS + VFS  │  │  │  └─ 8x16 bitmap font       │  │
-│  ├───────────────────────┤  │  ├─────────────────────────────┤  │
-│  │ Device Drivers        │  │  │ UEFI Services               │  │
-│  │  VirtIO Block + Net   │  │  │  GOP / Input / Memory       │  │
-│  ├───────────────────────┤  │  └─────────────────────────────┘  │
-│  │ Scheduler             │  │                                   │
-│  │  Preemptive RR        │  │  Target: aarch64-unknown-uefi    │
-│  ├───────────────────────┤  │  Boot: EFI System Partition       │
-│  │ Memory Management     │  │  Platforms: QEMU + VMware Fusion  │
-│  │  PMM + VMM + Heap     │  │                                   │
-│  ├───────────────────────┤  │                                   │
-│  │ Exceptions + GICv3    │  │                                   │
-│  ├───────────────────────┤  │                                   │
-│  │ Boot (Assembly)       │  │                                   │
-│  └───────────────────────┘  │                                   │
-│                             │                                   │
-│  Target: aarch64-unknown-   │                                   │
-│          none               │                                   │
-│  Boot: QEMU -kernel         │                                   │
-└─────────────────────────────┴───────────────────────────────────┘
+bootloader (aarch64-unknown-uefi)         boot-info (no_std lib)
+  UEFI entry                               #[repr(C)] structs:
+  → Find GOP, select best mode               BootInfo
+  → Capture FramebufferInfo                   FramebufferInfo
+  → Get UEFI memory map                       MemoryRegion
+  → Copy kernel to 0x40080000
+  → Place BootInfo at 0x40070000
+  → ExitBootServices()
+  → Disable MMU, flush caches
+  → Jump to kernel
+        ↓
+kernel (aarch64-unknown-none)
+  boot.S → kernel_main(x0)
+  → Detect BootInfo magic in x0
+  → GIC, MMU, PMM from BootInfo
+  → Init framebuffer from BootInfo
+  → Spawn GUI task
+  → VirtIO input for keyboard
+  → Interactive graphical shell
+```
+
+### Boot Sequence Detail
+
+1. **UEFI stage** — The bootloader runs as a standard UEFI application. It opens the Graphics Output Protocol (GOP), selects the best available mode (preferring 1024x768), and records the framebuffer base address, dimensions, stride, and pixel format.
+
+2. **Memory map** — The UEFI memory map is translated into a compact array of `MemoryRegion` structs (max 128). Each region is tagged as Usable, Reserved, Kernel, Framebuffer, or BootInfo.
+
+3. **Kernel load** — The kernel binary is embedded in the bootloader at compile time via `include_bytes!()` and copied to the fixed load address `0x40080000`.
+
+4. **ExitBootServices** — All UEFI boot services are terminated. From this point, the OS owns all hardware.
+
+5. **Trampoline** — Inline assembly disables the MMU (clears SCTLR_EL1 M/C/I bits), invalidates TLB and I-cache, then branches to the kernel entry point with x0 pointing to BootInfo.
+
+6. **Kernel init** — The kernel detects the BootInfo magic (`0x4E4F_5655_5342_4F4F`) in x0 and takes the UEFI boot path. If x0 contains a DTB pointer instead, the original DTB boot path runs unchanged.
+
+## Project Structure
+
+```
+NovusOS/
+├── boot-info/                    # Shared boot protocol crate
+│   ├── Cargo.toml
+│   └── src/lib.rs                # BootInfo, FramebufferInfo, MemoryRegion
+├── bootloader/                   # UEFI bootloader stub
+│   ├── Cargo.toml
+│   ├── .cargo/config.toml        # target = aarch64-unknown-uefi
+│   └── src/main.rs               # GOP → memmap → ExitBootServices → jump
+├── kernel/
+│   ├── Cargo.toml
+│   ├── linker.ld
+│   └── src/
+│       ├── main.rs               # Dual boot: BootInfo vs DTB detection
+│       ├── gui/                  # Graphical desktop (ported from novusos)
+│       │   ├── mod.rs            # init() + gui_main_task event loop
+│       │   ├── framebuffer.rs    # Pixel ops using boot-info PixelFormat
+│       │   ├── font.rs           # 8x16 bitmap font (128 ASCII glyphs)
+│       │   ├── console.rs        # Text console with scrolling
+│       │   ├── desktop.rs        # Gradient background + status bar
+│       │   ├── window.rs         # Terminal window with title bar
+│       │   ├── shell.rs          # Line editor
+│       │   ├── commands.rs       # 10 built-in commands (PSCI reboot/shutdown)
+│       │   ├── keyboard.rs       # KeyEvent enum, delegates to VirtIO input
+│       │   ├── timer.rs          # Uptime via CNTVCT_EL0
+│       │   └── color.rs          # Color palette
+│       ├── drivers/virtio/
+│       │   ├── input.rs          # VirtIO input driver (device ID 18)
+│       │   └── ...               # Existing block + net drivers
+│       ├── mm/
+│       │   ├── mod.rs            # init_from_boot_info() for UEFI path
+│       │   ├── pmm.rs            # mark_region_used() for BootInfo regions
+│       │   └── ...
+│       └── ...                   # Existing kernel subsystems
+├── novusos/                      # Original UEFI app (unchanged)
+├── Cargo.toml                    # Workspace: kernel, novusos, boot-info, bootloader
+└── Makefile                      # build-bootloader, run-full targets
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Rust nightly toolchain (`rustup` will auto-install from `rust-toolchain.toml`)
+- Rust nightly toolchain
 - QEMU with AArch64 support (`qemu-system-aarch64`)
 - EDK2 UEFI firmware (`edk2-aarch64-code.fd`)
 - `rust-objcopy` (from `llvm-tools-preview`)
 
 ```bash
-# Install Rust targets
 rustup target add aarch64-unknown-none aarch64-unknown-uefi
 
-# macOS (Homebrew)
+# macOS
 brew install qemu
 
 # Ubuntu/Debian
@@ -81,51 +114,54 @@ sudo apt install qemu-system-arm ovmf
 ### Build & Run
 
 ```bash
-# ── Bare-Metal Kernel ──
-make build                   # Build kernel ELF
-make run                     # Boot kernel in QEMU (serial console)
+# Full-route boot (ExitBootServices + bare-metal kernel + GUI)
+make build-bootloader     # Builds kernel.bin, then bootloader EFI
+make run-full             # Boots via UEFI → ExitBootServices → kernel GUI
 
-# ── NovusOS Graphical Desktop ──
-make build-novusos           # Build UEFI application
-make run-novusos             # Boot in QEMU with UEFI + GUI
+# Original DTB boot (serial console, no GUI)
+make run                  # Unchanged — boots kernel directly via QEMU -kernel
 
-# ── Create Bootable Image ──
-make iso                     # Create novusos.img for VMware
-make run-iso                 # Boot from disk image in QEMU
+# Original UEFI app (boot services stay active)
+make run-novusos          # Unchanged — boots novusos UEFI application
 ```
 
-## Kernel Features
+### Build Order
 
-The bare-metal kernel implements 10 phases of OS development:
+`make build-bootloader` handles the dependency chain automatically:
 
-| Phase | Component | Description |
-|-------|-----------|-------------|
-| 1 | Boot + UART | Assembly stub, BSS init, PL011 serial driver |
-| 2 | Exceptions | Vector table, GICv3, ARM generic timer (10ms tick) |
-| 3 | Memory | Bitmap PMM, 4-level page tables, MMU with identity + higher-half mapping |
-| 4 | Heap | Linked-list allocator with coalescing, enables `alloc` crate |
-| 5 | Scheduler | Preemptive round-robin with assembly context switch |
-| 6 | Drivers | VirtIO MMIO transport, split virtqueue, block + network drivers |
-| 7 | Filesystem | VFS layer, FAT32 read-only driver, RAM filesystem |
-| 8 | Network | Ethernet, ARP, IPv4, ICMP, UDP, TCP state machine |
-| 9 | Syscalls | SVC-based interface: write, read, open, close, yield, getpid, sleep |
-| 10 | Userspace | ELF loader, user page tables, EL1→EL0 transition via `eret` |
+1. `cargo build --release` compiles the kernel ELF
+2. `rust-objcopy` strips it to `target/kernel.bin`
+3. The bootloader embeds `kernel.bin` via `include_bytes!()` and compiles as a UEFI PE binary
+4. The resulting `BOOTAA64.EFI` is placed in `esp/efi/boot/`
 
-## NovusOS Desktop
+## QEMU Differences
 
-The graphical desktop runs as a UEFI application (boot services remain active):
+| Flag | `run` (DTB) | `run-novusos` (UEFI app) | `run-full` (full-route) |
+|------|-------------|--------------------------|-------------------------|
+| Machine | `virt,gic-version=3` | `virt` | `virt,gic-version=3` |
+| Boot | `-kernel kernel.bin` | UEFI firmware + ESP | UEFI firmware + ESP |
+| Display | Serial only | `ramfb` | `ramfb` |
+| Keyboard | N/A | `qemu-xhci` + `usb-kbd` | `virtio-keyboard-device` |
+| GIC | Kernel driver | UEFI handles it | Kernel driver |
+| Boot services | N/A | Active at runtime | Terminated |
 
-| Component | Description |
-|-----------|-------------|
-| Framebuffer | GOP-based, volatile pixel writes, BGR/RGB format detection |
-| Font | Embedded 8x16 bitmap, 128 ASCII glyphs, bit-blit rendering |
-| Console | `fmt::Write` implementation with scrolling and word wrap |
-| Keyboard | UEFI `SimpleTextInput` polling via `with_stdin()` |
-| Desktop | Vertical gradient background, 24px status bar with live uptime |
-| Window | Terminal with title bar, border, shadow, dark content area |
-| Shell | Line editor with 10 built-in commands |
+The key difference from `run-novusos`: `gic-version=3` is required because the kernel has its own GIC driver, and `virtio-keyboard-device` replaces USB keyboard since VirtIO is simpler to drive from bare metal.
 
-### Shell Commands
+## Key Design Decisions
+
+**Why two binaries?** UEFI applications target `aarch64-unknown-uefi` (PE format, Microsoft x64 ABI) while the kernel targets `aarch64-unknown-none` (ELF, bare-metal ABI). These are fundamentally different compilation targets that cannot share a single binary.
+
+**Why `include_bytes!()`?** Embedding the kernel in the bootloader at compile time avoids needing a UEFI filesystem driver to load it at runtime. The bootloader simply copies the embedded bytes to the kernel's load address.
+
+**Why VirtIO input instead of USB?** The kernel already has VirtIO infrastructure (virtqueue, MMIO transport). A VirtIO input driver is ~200 lines. A USB HID stack (xHCI controller + USB protocol + HID parser) would be 2500+ lines with no reusable foundation.
+
+**Why PSCI for reboot/shutdown?** After `ExitBootServices()`, UEFI runtime services may or may not be available (platform-dependent, requires runtime mapping). ARM PSCI is the standard way to reset/power-off on `virt` machines — a single `hvc` instruction.
+
+**Dual boot detection:** The kernel checks x0 on entry. BootInfo magic is a 64-bit value (`0x4E4F_5655_5342_4F4F`). DTB magic is `0xD00DFEED` (32-bit at offset 0). No collision possible, so the same kernel binary boots correctly in both modes.
+
+## Shell Commands
+
+Once the GUI is running, the terminal accepts the same commands as the UEFI desktop:
 
 ```
 novus> help
@@ -137,121 +173,25 @@ novus> help
   uptime        Show system uptime
   cpuinfo       Show CPU information
   color r g b   Change desktop background
-  reboot        Restart the system
-  shutdown      Power off the system
+  reboot        Restart the system (PSCI)
+  shutdown      Power off the system (PSCI)
 ```
 
-## Project Structure
+## Debugging
 
+```bash
+# Serial output from bootloader trampoline (writes 'B', 'I', 'K' to UART)
+make run-full
+
+# GDB: break at kernel entry
+qemu-system-aarch64 ... -S -s
+# In another terminal:
+gdb-multiarch target/aarch64-unknown-none/release/kernel -ex "target remote :1234" -ex "b *0x40080000"
+
+# QEMU exception tracing
+qemu-system-aarch64 ... -d int,cpu_reset
 ```
-NovusOS/
-├── Cargo.toml                  # Workspace configuration
-├── Makefile                    # Build and run targets
-├── rust-toolchain.toml         # Nightly toolchain + targets
-├── .cargo/config.toml          # Kernel cross-compilation
-├── kernel/
-│   ├── Cargo.toml
-│   ├── linker.ld               # Kernel memory layout
-│   ├── init.elf                # Embedded userspace binary
-│   └── src/
-│       ├── main.rs             # Kernel entry point
-│       ├── console.rs          # print!/println! macros
-│       ├── arch/aarch64/       # Boot, exceptions, GIC, timer
-│       ├── mm/                 # PMM, VMM, heap allocator
-│       ├── sync/               # SpinLock with interrupt masking
-│       ├── sched/              # Tasks, scheduler, process loader
-│       ├── drivers/            # UART, VirtIO block/net
-│       ├── fs/                 # VFS, FAT32, RamFS
-│       ├── net/                # TCP/IP stack
-│       └── syscall/            # System call interface
-├── novusos/
-│   ├── Cargo.toml
-│   ├── .cargo/config.toml      # UEFI target override
-│   └── src/
-│       ├── main.rs             # UEFI entry + event loop
-│       ├── framebuffer.rs      # GOP pixel operations
-│       ├── font.rs             # 8x16 bitmap font data
-│       ├── console.rs          # Graphical text console
-│       ├── keyboard.rs         # Input polling
-│       ├── desktop.rs          # Background + status bar
-│       ├── window.rs           # Terminal window
-│       ├── shell.rs            # Line editor
-│       ├── commands.rs         # Built-in commands
-│       ├── timer.rs            # Uptime (CNTVCT_EL0)
-│       ├── memory.rs           # UEFI memory map
-│       └── color.rs            # Color palette
-├── userspace/init/             # EL0 init process
-├── tools/                      # Build scripts
-└── docs/                       # Technical documentation
-```
-
-## VMware Fusion (Apple Silicon)
-
-1. Build the bootable image: `make iso`
-2. Create a new VM → **Other 64-bit ARM**
-3. Attach `novusos.img` as the hard disk
-4. Boot — UEFI firmware auto-detects `EFI/BOOT/BOOTAA64.EFI`
-
-## Documentation
-
-Full technical documentation is available in the [`docs/`](docs/) directory:
-
-- [Custom-OS Technical Documentation](docs/Custom-OS-Technical-Documentation.pdf) — 92-page reference covering all 10 kernel phases
-- [NovusOS Technical Documentation](docs/NovusOS-Technical-Documentation.pdf) — 39-page reference covering the graphical UEFI desktop
 
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-## Boot Output
-
-### Kernel Serial Console
-
-```
-Hello from custom-os!
-DTB pointer: 0x48000000
-[exceptions] Vector table installed
-[gic] GICv3 initialized
-[timer] Initialized at 62500000 Hz, tick every 10ms
-[vmm] MMU enabled with identity + higher-half mapping
-[mm] Physical memory: 65334 pages free / 65536 total
-[heap] Initialized 1024 KB at 0x400ca000
-[sched] Scheduler initialized
-[virtio] Found network device (id=1) at 0xa003c00, version 1
-[virtio] Found block device (id=2) at 0xa003e00, version 1
-[virtio-net] Initialized, MAC 52:54:00:12:34:56
-[virtio-blk] Initialized, queue size = 128
-[fat32] Mounted: 512 bytes/sector, 1 sectors/cluster, root cluster 2
-[vfs] Mounting fat32 at /
-[vfs] Mounting ramfs at /tmp
-[fs] /hello.txt (33 bytes): Hello from custom-os filesystem!
-[net] Stack initialized, IP 10.0.2.15, MAC 52:54:00:12:34:56
-[tcp] Listening on port 8080
-[process] Loading init ELF (74960 bytes)
-[process] Jumping to EL0 at 0x400000
-Hello from userspace!
-[init] pid=0
-```
-
-### NovusOS Desktop
-
-```
-┌─────────────────────────────────────────────────┐
-│ NovusOS v1.0  |  RAM: 256 MB  |  Uptime: 00:00 │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│   ╔═ Terminal ══════════════════════════╗       │
-│   ║ NovusOS v1.0 -- AArch64 UEFI       ║       │
-│   ║ Framebuffer: 1024x768  RAM: 256 MB  ║       │
-│   ║ Type help for available commands. ║       │
-│   ║                                     ║       │
-│   ║ novus> cpuinfo                      ║       │
-│   ║ CPU Information:                    ║       │
-│   ║   Implementer: ARM (0x41)           ║       │
-│   ║   Part: Cortex-A72 (0xD08)          ║       │
-│   ║   Variant: 0, Revision: 0           ║       │
-│   ║ novus> _                            ║       │
-│   ╚═════════════════════════════════════╝       │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
